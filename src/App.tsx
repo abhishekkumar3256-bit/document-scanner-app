@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Camera, 
@@ -6,7 +6,10 @@ import {
   User as UserIcon, 
   Search, 
   Settings,
-  Layout
+  Layout,
+  PlusCircle,
+  HardDrive,
+  Sparkles
 } from 'lucide-react';
 import { AuthProvider, useAuth } from './components/AuthContext';
 import Scanner from './components/Scanner';
@@ -14,6 +17,21 @@ import Editor from './components/Editor';
 import DocumentList from './components/DocumentList';
 import DocumentDetail from './components/DocumentDetail';
 import Profile from './components/Profile';
+import { v4 as uuidv4 } from 'uuid';
+import { db } from './lib/firebase';
+import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
+import { saveDocumentBlob } from './lib/storage';
+
+function ToolIcon({ icon, label, color }: { icon: React.ReactNode, label: string, color: string }) {
+  return (
+    <button className="flex flex-col items-center gap-2 group">
+      <div className={`${color} p-4 rounded-2xl shadow-sm border border-black/5 group-active:scale-95 transition-all`}>
+        {icon}
+      </div>
+      <span className="text-[10px] font-black uppercase tracking-widest text-gray-400 group-hover:text-gray-900 transition-colors">{label}</span>
+    </button>
+  );
+}
 
 function AppContent() {
   const { user, loading, signIn } = useAuth();
@@ -57,14 +75,17 @@ function AppContent() {
     <div className="flex flex-col h-screen bg-gray-50 font-sans max-w-md mx-auto relative overflow-hidden shadow-[0_0_100px_rgba(0,0,0,0.1)] border-x border-gray-100">
       {/* Header */}
       <header className="px-8 py-6 flex items-center justify-between bg-white/80 backdrop-blur-xl sticky top-0 z-40">
-        <h1 className="text-2xl font-black text-gray-900 tracking-tighter">
-          {activeTab === 'home' && 'My Vault'}
-          {activeTab === 'scanner' && 'Quick Scan'}
-          {activeTab === 'profile' && 'Account'}
-        </h1>
-        <div className="flex gap-4">
-          <button className="p-2 bg-gray-50 rounded-xl text-gray-400"><Search size={20} /></button>
-          <button className="p-2 bg-gray-50 rounded-xl text-gray-400"><Settings size={20} /></button>
+        <div className="flex flex-col">
+          <span className="text-[10px] font-black text-blue-600 uppercase tracking-widest leading-none mb-1">DocScan Pro</span>
+          <h1 className="text-2xl font-black text-gray-900 tracking-tighter">
+            {activeTab === 'home' && 'Workspace'}
+            {activeTab === 'scanner' && 'Quick Scan'}
+            {activeTab === 'profile' && 'Account'}
+          </h1>
+        </div>
+        <div className="flex gap-3">
+          <button className="w-10 h-10 flex items-center justify-center bg-gray-50 rounded-xl text-gray-400 hover:text-blue-600 transition-colors"><Search size={20} /></button>
+          <button className="w-10 h-10 flex items-center justify-center bg-blue-50 rounded-xl text-blue-600"><PlusCircle size={20} /></button>
         </div>
       </header>
 
@@ -77,8 +98,60 @@ function AppContent() {
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: 10 }}
-              className="p-6"
+              className="p-6 flex flex-col gap-8"
             >
+              {/* Quick Tools Grid */}
+              <div className="grid grid-cols-4 gap-4">
+                 <ToolIcon icon={<FileText className="text-red-500" />} label="To PDF" color="bg-red-50" />
+                 <ToolIcon icon={<Layout className="text-blue-500" />} label="Merge" color="bg-blue-50" />
+                 <ToolIcon icon={<Sparkles className="text-purple-500" />} label="AI Tool" color="bg-purple-50" />
+                 <ToolIcon icon={<HardDrive className="text-orange-500" />} label="Storage" color="bg-orange-50" />
+              </div>
+
+              {/* Upload Area */}
+              <div 
+                className="bg-white border-2 border-dashed border-gray-100 rounded-[32px] p-8 flex flex-col items-center justify-center text-center gap-4 hover:border-blue-200 transition-colors cursor-pointer"
+                onClick={() => document.getElementById('file-upload')?.click()}
+              >
+                <div className="w-16 h-16 bg-blue-50 rounded-full flex items-center justify-center text-blue-600">
+                  <PlusCircle size={32} />
+                </div>
+                <div>
+                  <p className="font-bold text-gray-900">Upload or Import</p>
+                  <p className="text-xs text-gray-400 mt-1">Excel, Word, Image, PDF</p>
+                </div>
+                <input 
+                  id="file-upload" 
+                  type="file" 
+                  className="hidden" 
+                  onChange={async (e) => {
+                    const file = e.target.files?.[0];
+                    if (file && user) {
+                      const id = uuidv4();
+                      const localFileKey = await saveDocumentBlob(id, file);
+                      await addDoc(collection(db, 'documents'), {
+                        id,
+                        userId: user.uid,
+                        title: file.name,
+                        localFileKey,
+                        type: file.type.includes('pdf') ? 'pdf' : 
+                              file.type.includes('image') ? 'jpg' :
+                              file.name.endsWith('.xlsx') ? 'xlsx' :
+                              file.name.endsWith('.docx') ? 'docx' : 'jpg',
+                        size: file.size,
+                        createdAt: serverTimestamp(),
+                        updatedAt: serverTimestamp(),
+                      });
+                    }
+                  }}
+                />
+              </div>
+
+              <div className="flex items-center justify-between">
+                <h2 className="text-xs font-black text-gray-400 uppercase tracking-widest">Recent Documents</h2>
+                <button className="text-[10px] font-bold text-blue-600 uppercase tracking-widest">View All</button>
+              </div>
+
               <DocumentList 
                 onViewDoc={(id) => setViewingDocId(id)}
               />

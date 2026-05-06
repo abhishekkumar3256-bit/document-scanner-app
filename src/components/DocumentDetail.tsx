@@ -10,14 +10,17 @@ import {
   Trash2, 
   Download, 
   FileText, 
-  MoreVertical,
   PlusCircle,
   FileSearch,
   Languages,
-  Sparkles
+  Sparkles,
+  Table,
+  FileCode
 } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import { GoogleGenAI } from '@google/genai';
+import * as XLSX from 'xlsx';
+import mammoth from 'mammoth';
 
 interface DocumentDetailProps {
   id: string;
@@ -30,6 +33,8 @@ export default function DocumentDetail({ id, onClose }: DocumentDetailProps) {
   const [loading, setLoading] = useState(true);
   const [aiLoading, setAiLoading] = useState(false);
   const [showShareOptions, setShowShareOptions] = useState(false);
+  const [excelData, setExcelData] = useState<any[][]>([]);
+  const [wordHtml, setWordHtml] = useState<string>('');
 
   useEffect(() => {
     async function loadData() {
@@ -41,6 +46,18 @@ export default function DocumentDetail({ id, onClose }: DocumentDetailProps) {
           const blob = await getDocumentBlob(data.localFileKey);
           if (blob) {
             setBlobUrl(URL.createObjectURL(blob));
+            
+            if (data.type === 'xlsx') {
+              const arrayBuffer = await blob.arrayBuffer();
+              const workbook = XLSX.read(arrayBuffer);
+              const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+              const rows = XLSX.utils.sheet_to_json(firstSheet, { header: 1 });
+              setExcelData(rows as any[][]);
+            } else if (data.type === 'docx') {
+              const arrayBuffer = await blob.arrayBuffer();
+              const result = await mammoth.convertToHtml({ arrayBuffer });
+              setWordHtml(result.value);
+            }
           }
         }
       } catch (error) {
@@ -53,7 +70,7 @@ export default function DocumentDetail({ id, onClose }: DocumentDetailProps) {
     return () => {
       if (blobUrl) URL.revokeObjectURL(blobUrl);
     };
-  }, [id]);
+  }, [id, blobUrl]);
 
   const handleDelete = async () => {
     if (!document) return;
@@ -85,9 +102,14 @@ export default function DocumentDetail({ id, onClose }: DocumentDetailProps) {
 
   const summarizeAI = async () => {
     if (!blobUrl || !document) return;
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey || apiKey === 'MY_GEMINI_API_KEY') {
+      alert("Please configure your GEMINI_API_KEY in the Secrets tab to use AI features.");
+      return;
+    }
     setAiLoading(true);
     try {
-      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
+      const ai = new GoogleGenAI({ apiKey });
       const responsiveBlob = await fetch(blobUrl).then(r => r.blob());
       const reader = new FileReader();
       const base64Promise = new Promise<string>(resolve => {
@@ -157,11 +179,36 @@ export default function DocumentDetail({ id, onClose }: DocumentDetailProps) {
       </header>
 
       <div className="p-6 flex flex-col gap-6">
-        <div className="w-full aspect-[3/4] bg-gray-50 rounded-3xl overflow-hidden border border-gray-100 shadow-inner relative group">
-          {blobUrl && <img src={blobUrl} className="w-full h-full object-contain" alt="Document content" />}
+        <div className="w-full min-h-[400px] bg-gray-50 rounded-3xl overflow-hidden border border-gray-100 shadow-inner relative group p-4">
+          {document.type === 'jpg' || document.type === 'png' ? (
+            blobUrl && <img src={blobUrl} className="w-full h-full object-contain mx-auto" alt="Document content" />
+          ) : document.type === 'xlsx' ? (
+            <div className="overflow-auto max-h-[600px] w-full">
+              <table className="w-full text-xs text-left border-collapse">
+                <tbody>
+                  {excelData.map((row, i) => (
+                    <tr key={i} className="border-b border-gray-200">
+                      {row.map((cell, j) => (
+                        <td key={j} className="p-2 whitespace-nowrap">{String(cell || '')}</td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : document.type === 'docx' ? (
+            <div className="prose prose-sm max-w-none prose-slate overflow-auto max-h-[600px] w-full p-4 bg-white rounded-xl shadow-sm" dangerouslySetInnerHTML={{ __html: wordHtml }} />
+          ) : (
+            <div className="flex flex-col items-center justify-center h-full py-20 text-gray-400">
+              <FileCode size={48} className="mb-4 opacity-20" />
+              <p className="font-bold">PDF / File Preview</p>
+              <p className="text-xs">Previewing of this format is coming soon</p>
+            </div>
+          )}
+          
           <div className="absolute inset-x-0 bottom-0 p-4 bg-gradient-to-t from-black/50 to-transparent flex justify-center opacity-0 group-hover:opacity-100 transition-opacity">
             <button onClick={generatePDF} className="bg-white/20 backdrop-blur-md text-white px-4 py-2 rounded-full text-xs font-bold flex items-center gap-2">
-              <Download size={14} /> Download PDF
+              <Download size={14} /> Save as PDF
             </button>
           </div>
         </div>
