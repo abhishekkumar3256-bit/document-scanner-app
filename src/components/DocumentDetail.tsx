@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { db } from '../lib/firebase';
 import { doc, getDoc, updateDoc, deleteDoc, serverTimestamp } from 'firebase/firestore';
 import { getDocumentBlob, deleteDocumentBlob } from '../lib/storage';
@@ -18,7 +18,8 @@ import {
   FileCode
 } from 'lucide-react';
 import { jsPDF } from 'jspdf';
-import { GoogleGenAI } from '@google/genai';
+import { GoogleGenerativeAI } from '@google/generative-ai';
+import pdfToText from 'react-pdftotext';
 import * as XLSX from 'xlsx';
 import mammoth from 'mammoth';
 
@@ -103,41 +104,54 @@ export default function DocumentDetail({ id, onClose }: DocumentDetailProps) {
   const summarizeAI = async () => {
     if (!blobUrl || !document) return;
     const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey || apiKey === 'MY_GEMINI_API_KEY') {
+    if (!apiKey || apiKey === 'MY_GEMINI_API_KEY' || !apiKey) {
       alert("Please configure your GEMINI_API_KEY in the Secrets tab to use AI features.");
       return;
     }
     setAiLoading(true);
     try {
-      const ai = new GoogleGenAI({ apiKey });
-      const responsiveBlob = await fetch(blobUrl).then(r => r.blob());
-      const reader = new FileReader();
-      const base64Promise = new Promise<string>(resolve => {
-        reader.onloadend = () => resolve(reader.result as string);
-      });
-      reader.readAsDataURL(responsiveBlob);
-      const base64 = (await base64Promise).split(',')[1];
+      const genAI = new GoogleGenerativeAI(apiKey);
+      const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+      
+      let prompt = "Please provide a concise and professional summary of this document. Focus on key details, dates, and names.";
+      let parts: any[] = [];
 
-      const response = await ai.models.generateContent({
-        model: 'gemini-3-flash-preview',
-        contents: {
-          parts: [
-            { text: "Please summarize this document concisely." },
-            { inlineData: { mimeType: "image/jpeg", data: base64 } }
-          ]
-        }
-      });
+      if (document.type === 'pdf') {
+        const blob = await fetch(blobUrl).then(r => r.blob());
+        const text = await pdfToText(blob);
+        parts.push({ text: `${prompt}\n\nDocument Text Content:\n${text}` });
+      } else {
+        const responsiveBlob = await fetch(blobUrl).then(r => r.blob());
+        const reader = new FileReader();
+        const base64Promise = new Promise<string>(resolve => {
+          reader.onloadend = () => resolve(reader.result?.toString().split(',')[1] || '');
+        });
+        reader.readAsDataURL(responsiveBlob);
+        const base64Data = await base64Promise;
+        parts = [
+          { text: prompt },
+          {
+            inlineData: {
+              data: base64Data,
+              mimeType: "image/jpeg"
+            }
+          }
+        ];
+      }
 
-      const summary = response.text;
-      if (summary) {
+      const result = await model.generateContent(parts);
+      const summaryText = result.response.text();
+      
+      if (summaryText) {
         await updateDoc(doc(db, 'documents', id), {
-          aiSummary: summary,
+          aiSummary: summaryText,
           updatedAt: serverTimestamp()
         });
-        setDocument(prev => prev ? { ...prev, aiSummary: summary } : null);
+        setDocument(prev => prev ? { ...prev, aiSummary: summaryText } : null);
       }
     } catch (err) {
       console.error('AI Error:', err);
+      alert("AI feature experienced an error. Please ensure your Gemini API key is valid.");
     } finally {
       setAiLoading(false);
     }
