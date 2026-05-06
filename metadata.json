@@ -1,0 +1,14 @@
+{
+  "name": "DocScan Pro - Mobile Scanner & AI PDF Tool",
+  "description": "A powerful mobile-first document scanner with offline PDF generation, AI summarization, OCR, and advanced editing features including cropping and rotation.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ],
+  "majorCapabilities": [
+    "Image processing",
+    "PDF generation",
+    "AI features",
+    "Authentication"
+  ]
+}
